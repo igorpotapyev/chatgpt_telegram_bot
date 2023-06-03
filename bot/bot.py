@@ -30,7 +30,7 @@ from telegram.ext import (
 )
 from telegram.constants import ParseMode, ChatAction
 
-import config
+import configs
 import database
 import openai_utils
 
@@ -90,7 +90,7 @@ async def register_user_if_not_exists(update: Update, context: CallbackContext, 
         user_semaphores[user.id] = asyncio.Semaphore(1)
 
     if db.get_user_attribute(user.id, "current_model") is None:
-        db.set_user_attribute(user.id, "current_model", config.models["available_text_models"][0])
+        db.set_user_attribute(user.id, "current_model", configs.models["available_text_models"][0])
 
     # back compatibility for n_used_tokens field
     n_used_tokens = db.get_user_attribute(user.id, "n_used_tokens")
@@ -118,6 +118,7 @@ async def is_bot_mentioned(update: Update, context: CallbackContext):
 
          if message.chat.type == "private":
              return True
+             # return False  # disable direct messaging
 
          if message.text is not None and ("@" + context.bot.username) in message.text:
              return True
@@ -160,7 +161,7 @@ async def help_group_chat_handle(update: Update, context: CallbackContext):
      text = HELP_GROUP_CHAT_MESSAGE.format(bot_username="@" + context.bot.username)
 
      await update.message.reply_text(text, parse_mode=ParseMode.HTML)
-     await update.message.reply_video(config.help_group_chat_video_path)
+     await update.message.reply_video(configs.help_group_chat_video_path)
 
 
 async def retry_handle(update: Update, context: CallbackContext):
@@ -203,16 +204,16 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
     user_id = update.message.from_user.id
     chat_mode = db.get_user_attribute(user_id, "current_chat_mode")
 
-    if chat_mode == "artist":
-        await generate_image_handle(update, context, message=message)
-        return
+    # if chat_mode == "artist":
+    #     await generate_image_handle(update, context, message=message)
+    #     return
 
     async def message_handle_fn():
         # new dialog timeout
         if use_new_dialog_timeout:
-            if (datetime.now() - db.get_user_attribute(user_id, "last_interaction")).seconds > config.new_dialog_timeout and len(db.get_dialog_messages(user_id)) > 0:
+            if (datetime.now() - db.get_user_attribute(user_id, "last_interaction")).seconds > configs.new_dialog_timeout and len(db.get_dialog_messages(user_id)) > 0:
                 db.start_new_dialog(user_id)
-                await update.message.reply_text(f"Starting new dialog due to timeout (<b>{config.chat_modes[chat_mode]['name']}</b> mode) ✅", parse_mode=ParseMode.HTML)
+                await update.message.reply_text(f"Starting new dialog due to timeout (<b>{configs.chat_modes[chat_mode]['name']}</b> mode) ✅", parse_mode=ParseMode.HTML)
         db.set_user_attribute(user_id, "last_interaction", datetime.now())
 
         # in case of CancelledError
@@ -234,10 +235,10 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
             parse_mode = {
                 "html": ParseMode.HTML,
                 "markdown": ParseMode.MARKDOWN
-            }[config.chat_modes[chat_mode]["parse_mode"]]
+            }[configs.chat_modes[chat_mode]["parse_mode"]]
 
             chatgpt_instance = openai_utils.ChatGPT(model=current_model)
-            if config.enable_message_streaming:
+            if configs.enable_message_streaming:
                 gen = chatgpt_instance.send_message_stream(_message, dialog_messages=dialog_messages, chat_mode=chat_mode)
             else:
                 answer, (n_input_tokens, n_output_tokens), n_first_dialog_messages_removed = await chatgpt_instance.send_message(
@@ -382,7 +383,7 @@ async def generate_image_handle(update: Update, context: CallbackContext, messag
     message = message or update.message.text
 
     try:
-        image_urls = await openai_utils.generate_images(message, n_images=config.return_n_generated_images)
+        image_urls = await openai_utils.generate_images(message, n_images=configs.return_n_generated_images)
     except openai.error.InvalidRequestError as e:
         if str(e).startswith("Your request was rejected as a result of our safety system"):
             text = "🥲 Your request <b>doesn't comply</b> with OpenAI's usage policies.\nWhat did you write there, huh?"
@@ -392,7 +393,7 @@ async def generate_image_handle(update: Update, context: CallbackContext, messag
             raise
 
     # token usage
-    db.set_user_attribute(user_id, "n_generated_images", config.return_n_generated_images + db.get_user_attribute(user_id, "n_generated_images"))
+    db.set_user_attribute(user_id, "n_generated_images", configs.return_n_generated_images + db.get_user_attribute(user_id, "n_generated_images"))
 
     for i, image_url in enumerate(image_urls):
         await update.message.chat.send_action(action="upload_photo")
@@ -410,7 +411,7 @@ async def new_dialog_handle(update: Update, context: CallbackContext):
     await update.message.reply_text("Starting new dialog ✅")
 
     chat_mode = db.get_user_attribute(user_id, "current_chat_mode")
-    await update.message.reply_text(f"{config.chat_modes[chat_mode]['welcome_message']}", parse_mode=ParseMode.HTML)
+    await update.message.reply_text(f"{configs.chat_modes[chat_mode]['welcome_message']}", parse_mode=ParseMode.HTML)
 
 
 async def cancel_handle(update: Update, context: CallbackContext):
@@ -427,16 +428,16 @@ async def cancel_handle(update: Update, context: CallbackContext):
 
 
 def get_chat_mode_menu(page_index: int):
-    n_chat_modes_per_page = config.n_chat_modes_per_page
-    text = f"Select <b>chat mode</b> ({len(config.chat_modes)} modes available):"
+    n_chat_modes_per_page = configs.n_chat_modes_per_page
+    text = f"Select <b>chat mode</b> ({len(configs.chat_modes)} modes available):"
 
     # buttons
-    chat_mode_keys = list(config.chat_modes.keys())
+    chat_mode_keys = list(configs.chat_modes.keys())
     page_chat_mode_keys = chat_mode_keys[page_index * n_chat_modes_per_page:(page_index + 1) * n_chat_modes_per_page]
 
     keyboard = []
     for chat_mode_key in page_chat_mode_keys:
-        name = config.chat_modes[chat_mode_key]["name"]
+        name = configs.chat_modes[chat_mode_key]["name"]
         keyboard.append([InlineKeyboardButton(name, callback_data=f"set_chat_mode|{chat_mode_key}")])
 
     # pagination
@@ -510,17 +511,17 @@ async def set_chat_mode_handle(update: Update, context: CallbackContext):
 
     await context.bot.send_message(
         update.callback_query.message.chat.id,
-        f"{config.chat_modes[chat_mode]['welcome_message']}",
+        f"{configs.chat_modes[chat_mode]['welcome_message']}",
         parse_mode=ParseMode.HTML
     )
 
 
 def get_settings_menu(user_id: int):
     current_model = db.get_user_attribute(user_id, "current_model")
-    text = config.models["info"][current_model]["description"]
+    text = configs.models["info"][current_model]["description"]
 
     text += "\n\n"
-    score_dict = config.models["info"][current_model]["scores"]
+    score_dict = configs.models["info"][current_model]["scores"]
     for score_key, score_value in score_dict.items():
         text += "🟢" * score_value + "⚪️" * (5 - score_value) + f" – {score_key}\n\n"
 
@@ -528,8 +529,8 @@ def get_settings_menu(user_id: int):
 
     # buttons to choose models
     buttons = []
-    for model_key in config.models["available_text_models"]:
-        title = config.models["info"][model_key]["name"]
+    for model_key in configs.models["available_text_models"]:
+        title = configs.models["info"][model_key]["name"]
         if model_key == current_model:
             title = "✅ " + title
 
@@ -590,26 +591,25 @@ async def show_balance_handle(update: Update, context: CallbackContext):
         n_input_tokens, n_output_tokens = n_used_tokens_dict[model_key]["n_input_tokens"], n_used_tokens_dict[model_key]["n_output_tokens"]
         total_n_used_tokens += n_input_tokens + n_output_tokens
 
-        n_input_spent_dollars = config.models["info"][model_key]["price_per_1000_input_tokens"] * (n_input_tokens / 1000)
-        n_output_spent_dollars = config.models["info"][model_key]["price_per_1000_output_tokens"] * (n_output_tokens / 1000)
+        n_input_spent_dollars = configs.models["info"][model_key]["price_per_1000_input_tokens"] * (n_input_tokens / 1000)
+        n_output_spent_dollars = configs.models["info"][model_key]["price_per_1000_output_tokens"] * (n_output_tokens / 1000)
         total_n_spent_dollars += n_input_spent_dollars + n_output_spent_dollars
 
         details_text += f"- {model_key}: <b>{n_input_spent_dollars + n_output_spent_dollars:.03f}$</b> / <b>{n_input_tokens + n_output_tokens} tokens</b>\n"
 
-    # image generation
-    image_generation_n_spent_dollars = config.models["info"]["dalle-2"]["price_per_1_image"] * n_generated_images
-    if n_generated_images != 0:
-        details_text += f"- DALL·E 2 (image generation): <b>{image_generation_n_spent_dollars:.03f}$</b> / <b>{n_generated_images} generated images</b>\n"
+    # # image generation
+    # image_generation_n_spent_dollars = configs.models["info"]["dalle-2"]["price_per_1_image"] * n_generated_images
+    # if n_generated_images != 0:
+    #     details_text += f"- DALL·E 2 (image generation): <b>{image_generation_n_spent_dollars:.03f}$</b> / <b>{n_generated_images} generated images</b>\n"
+    #
+    # total_n_spent_dollars += image_generation_n_spent_dollars
 
-    total_n_spent_dollars += image_generation_n_spent_dollars
-
-    # voice recognition
-    voice_recognition_n_spent_dollars = config.models["info"]["whisper"]["price_per_1_min"] * (n_transcribed_seconds / 60)
-    if n_transcribed_seconds != 0:
-        details_text += f"- Whisper (voice recognition): <b>{voice_recognition_n_spent_dollars:.03f}$</b> / <b>{n_transcribed_seconds:.01f} seconds</b>\n"
-
-    total_n_spent_dollars += voice_recognition_n_spent_dollars
-
+    # # voice recognition
+    # voice_recognition_n_spent_dollars = configs.models["info"]["whisper"]["price_per_1_min"] * (n_transcribed_seconds / 60)
+    # if n_transcribed_seconds != 0:
+    #     details_text += f"- Whisper (voice recognition): <b>{voice_recognition_n_spent_dollars:.03f}$</b> / <b>{n_transcribed_seconds:.01f} seconds</b>\n"
+    #
+    # total_n_spent_dollars += voice_recognition_n_spent_dollars
 
     text = f"You spent <b>{total_n_spent_dollars:.03f}$</b>\n"
     text += f"You used <b>{total_n_used_tokens}</b> tokens\n\n"
@@ -662,7 +662,7 @@ async def post_init(application: Application):
 def run_bot() -> None:
     application = (
         ApplicationBuilder()
-        .token(config.telegram_token)
+        .token(configs.telegram_token)
         .concurrent_updates(True)
         .rate_limiter(AIORateLimiter(max_retries=5))
         .post_init(post_init)
@@ -671,9 +671,9 @@ def run_bot() -> None:
 
     # add handlers
     user_filter = filters.ALL
-    if len(config.allowed_telegram_usernames) > 0:
-        usernames = [x for x in config.allowed_telegram_usernames if isinstance(x, str)]
-        user_ids = [x for x in config.allowed_telegram_usernames if isinstance(x, int)]
+    if len(configs.allowed_telegram_usernames) > 0:
+        usernames = [x for x in configs.allowed_telegram_usernames if isinstance(x, str)]
+        user_ids = [x for x in configs.allowed_telegram_usernames if isinstance(x, int)]
         user_filter = filters.User(username=usernames) | filters.User(user_id=user_ids)
 
     application.add_handler(CommandHandler("start", start_handle, filters=user_filter))
@@ -685,7 +685,7 @@ def run_bot() -> None:
     application.add_handler(CommandHandler("new", new_dialog_handle, filters=user_filter))
     application.add_handler(CommandHandler("cancel", cancel_handle, filters=user_filter))
 
-    application.add_handler(MessageHandler(filters.VOICE & user_filter, voice_message_handle))
+    # application.add_handler(MessageHandler(filters.VOICE & user_filter, voice_message_handle))
 
     application.add_handler(CommandHandler("mode", show_chat_modes_handle, filters=user_filter))
     application.add_handler(CallbackQueryHandler(show_chat_modes_callback_handle, pattern="^show_chat_modes"))

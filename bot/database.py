@@ -4,12 +4,12 @@ import pymongo
 import uuid
 from datetime import datetime
 
-import config
+import configs
 
 
 class Database:
     def __init__(self):
-        self.client = pymongo.MongoClient(config.mongodb_uri)
+        self.client = pymongo.MongoClient(configs.mongodb_uri)
         self.db = self.client["chatgpt_telegram_bot"]
 
         self.user_collection = self.db["user"]
@@ -45,7 +45,7 @@ class Database:
 
             "current_dialog_id": None,
             "current_chat_mode": "assistant",
-            "current_model": config.models["available_text_models"][0],
+            "current_model": configs.models["available_text_models"][0],
 
             "n_used_tokens": {},
 
